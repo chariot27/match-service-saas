@@ -17,30 +17,17 @@ public class MatchInvite {
     @Id
     private UUID id;
 
-    @Column("inviter_id")
-    private UUID inviterId;
+    @Column("inviter_id") private UUID inviterId;
+    @Column("target_id")  private UUID targetId;
 
-    @Column("target_id")
-    private UUID targetId;
-
-    @Column("inviter_name")
-    private String inviterName;
-
-    @Column("inviter_phone")
-    private String inviterPhone;
-
-    @Column("inviter_avatar")
-    private String inviterAvatar;
+    @Column("inviter_name")   private String inviterName;
+    @Column("inviter_phone")  private String inviterPhone;
+    @Column("inviter_avatar") private String inviterAvatar;
 
     private InviteStatus status;
 
-    @Column("created_at")
-    private OffsetDateTime createdAt;
+    @Column("created_at") private OffsetDateTime createdAt;
+    @Column("updated_at") private OffsetDateTime updatedAt;
 
-    @Column("updated_at")
-    private OffsetDateTime updatedAt;
-
-    @Version
-    private Long version;
+    @Version private Long version;
 }
-
