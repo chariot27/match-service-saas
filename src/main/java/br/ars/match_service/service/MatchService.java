@@ -6,6 +6,7 @@ import br.ars.match_service.mapper.*;
 import br.ars.match_service.repo.*;
 import br.ars.match_service.util.PairKeyUtil;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class MatchService {
 
     private final MatchInviteRepository inviteRepo;
@@ -28,26 +30,38 @@ public class MatchService {
     private final MatchMapper matchMapper;
     private final MatchAcceptMapper acceptMapper;
 
+    // ---------- INVITE ----------
     @Transactional
     public InviteResponse invite(InviteRequest request) {
+        long t0 = System.currentTimeMillis();
+        log.info("[MATCH][INVITE][IN] payload={{inviterId:{}, targetId:{}, inviterName:{}, inviterPhone:{}, inviterAvatar:{}}}",
+                safe(request.getInviterId()), safe(request.getTargetId()),
+                request.getInviterName(), request.getInviterPhone(), request.getInviterAvatar());
+
         if (request.getInviterId().equals(request.getTargetId())) {
+            log.warn("[MATCH][INVITE] inviterId == targetId ({}). Abortando.", request.getInviterId());
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "inviterId == targetId");
         }
+
         UUID low = PairKeyUtil.low(request.getInviterId(), request.getTargetId());
         UUID high = PairKeyUtil.high(request.getInviterId(), request.getTargetId());
+        log.debug("[MATCH][INVITE] pair computed -> low={}, high={}", low, high);
 
+        // Já existe match pronto?
         if (matchRepo.existsByPairLowAndPairHigh(low, high)) {
-            UUID matchId = matchRepo.findByPairLowAndPairHigh(low, high)
-                    .map(Match::getId)
-                    .orElse(null);
+            UUID matchId = matchRepo.findByPairLowAndPairHigh(low, high).map(Match::getId).orElse(null);
+            log.info("[MATCH][INVITE] match já existente para par low/high. matchId={}", matchId);
             return InviteResponse.builder().matched(true).matchId(matchId).build();
         }
 
+        // Já existe convite idêntico?
         Optional<MatchInvite> existing = inviteRepo.findByInviterIdAndTargetId(request.getInviterId(), request.getTargetId());
         if (existing.isPresent()) {
+            log.info("[MATCH][INVITE] convite já existente (mesmo inviter->target). inviteId={}", existing.get().getId());
             return InviteResponse.builder().matched(false).invite(inviteMapper.toDTO(existing.get())).build();
         }
 
+        // Cria novo convite
         MatchInvite entity = inviteMapper.toEntity(request);
         entity.setId(UUID.randomUUID());
         entity.setStatus(InviteStatus.PENDING);
@@ -55,34 +69,58 @@ public class MatchService {
 
         try {
             inviteRepo.save(entity);
+            log.info("[MATCH][INVITE] convite criado com sucesso. inviteId={}", entity.getId());
         } catch (DuplicateKeyException e) {
+            log.warn("[MATCH][INVITE] DuplicateKey ao salvar convite (race). Tentando recarregar. cause={}", e.getMessage());
             entity = inviteRepo.findByInviterIdAndTargetId(request.getInviterId(), request.getTargetId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "invite duplicate and not found"));
+                    .orElseThrow(() -> {
+                        log.error("[MATCH][INVITE] duplicate detectado e não consegui recarregar o convite.");
+                        return new ResponseStatusException(HttpStatus.CONFLICT, "invite duplicate and not found");
+                    });
         }
 
+        // Existe convite oposto? (target -> inviter) -> vira match
         Optional<MatchInvite> opposite = inviteRepo.findByInviterIdAndTargetId(entity.getTargetId(), entity.getInviterId());
         if (opposite.isPresent()) {
+            log.info("[MATCH][INVITE] convite oposto encontrado (target->inviter). Criando match… opInviteId={}", opposite.get().getId());
             Match m = createMatchIfAbsent(entity);
+            long ms = System.currentTimeMillis() - t0;
+            log.info("[MATCH][INVITE][OUT] matched=true matchId={} ({} ms)", m.getId(), ms);
             return InviteResponse.builder().matched(true).matchId(m.getId()).build();
         }
 
+        long ms = System.currentTimeMillis() - t0;
+        log.info("[MATCH][INVITE][OUT] matched=false inviteId={} ({} ms)", entity.getId(), ms);
         return InviteResponse.builder().matched(false).invite(inviteMapper.toDTO(entity)).build();
     }
 
+    // ---------- ACCEPT ----------
     @Transactional
     public AcceptDTO accept(AcceptRequest req) {
+        long t0 = System.currentTimeMillis();
+        log.info("[MATCH][ACCEPT][IN] payload={{inviteId:{}, inviterId:{}, targetId:{}}}",
+                safe(req.getInviteId()), safe(req.getInviterId()), safe(req.getTargetId()));
+
         MatchInvite invite = (req.getInviteId() != null)
                 ? inviteRepo.findById(req.getInviteId()).orElse(null)
                 : inviteRepo.findByInviterIdAndTargetId(req.getInviterId(), req.getTargetId()).orElse(null);
 
-        if (invite == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "invite not found");
+        if (invite == null) {
+            log.warn("[MATCH][ACCEPT] convite não encontrado para criteria inviteId={}, pair={} -> 404",
+                    req.getInviteId(), pairStr(req.getInviterId(), req.getTargetId()));
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "invite not found");
+        }
+
+        log.debug("[MATCH][ACCEPT] convite localizado inviteId={}, status={}", invite.getId(), invite.getStatus());
 
         if (invite.getStatus() == InviteStatus.PENDING) {
             invite.setStatus(InviteStatus.ACCEPTED);
             inviteRepo.save(invite);
+            log.info("[MATCH][ACCEPT] convite marcado como ACCEPTED. inviteId={}", invite.getId());
         }
 
         Match m = createMatchIfAbsent(invite);
+        log.info("[MATCH][ACCEPT] match garantido matchId={}", m.getId());
 
         MatchAccept acc = MatchAccept.builder()
                 .id(UUID.randomUUID())
@@ -94,15 +132,24 @@ public class MatchService {
                 .build();
         acceptRepo.save(acc);
 
-        return acceptMapper.toDTO(acc);
+        AcceptDTO out = acceptMapper.toDTO(acc);
+        long ms = System.currentTimeMillis() - t0;
+        log.info("[MATCH][ACCEPT][OUT] acceptId={} inviteId={} matchId={} ({} ms)",
+                acc.getId(), invite.getId(), m.getId(), ms);
+        return out;
     }
 
+    // ---------- CORE (cria match se não existir) ----------
     private Match createMatchIfAbsent(MatchInvite invite) {
         UUID low = PairKeyUtil.low(invite.getInviterId(), invite.getTargetId());
         UUID high = PairKeyUtil.high(invite.getInviterId(), invite.getTargetId());
+        log.debug("[MATCH][CREATE] pair low={}, high={}, fromInviteId={}", low, high, invite.getId());
 
         Optional<Match> existing = matchRepo.findByPairLowAndPairHigh(low, high);
-        if (existing.isPresent()) return existing.get();
+        if (existing.isPresent()) {
+            log.debug("[MATCH][CREATE] match já existia. matchId={}", existing.get().getId());
+            return existing.get();
+        }
 
         Match m = Match.builder()
                 .id(UUID.randomUUID())
@@ -116,15 +163,34 @@ public class MatchService {
                 .build();
 
         try {
-            return matchRepo.save(m);
+            Match saved = matchRepo.save(m);
+            log.info("[MATCH][CREATE] match criado com sucesso. matchId={}", saved.getId());
+            return saved;
         } catch (DuplicateKeyException e) {
+            log.warn("[MATCH][CREATE] DuplicateKey (race). Recarregando… cause={}", e.getMessage());
             return matchRepo.findByPairLowAndPairHigh(low, high)
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "match inserted concurrently but not found"));
+                    .orElseThrow(() -> {
+                        log.error("[MATCH][CREATE] match inserido concorrente mas não encontrado (inconsistência).");
+                        return new ResponseStatusException(HttpStatus.CONFLICT, "match inserted concurrently but not found");
+                    });
         }
     }
 
+    // ---------- LIST ----------
     public List<MatchDTO> listForUser(UUID userId) {
-        return matchRepo.findAllByUserAOrUserB(userId, userId)
+        log.info("[MATCH][LIST] listForUser userId={}", userId);
+        List<MatchDTO> out = matchRepo.findAllByUserAOrUserB(userId, userId)
                 .stream().map(matchMapper::toDTO).toList();
+        log.info("[MATCH][LIST][OUT] userId={} total={}", userId, out.size());
+        return out;
+    }
+
+    // ---------- helpers de log ----------
+    private static Object safe(Object o) {
+        return o == null ? "null" : o;
+    }
+
+    private static String pairStr(UUID a, UUID b) {
+        return "(" + (a == null ? "null" : a) + " -> " + (b == null ? "null" : b) + ")";
     }
 }
