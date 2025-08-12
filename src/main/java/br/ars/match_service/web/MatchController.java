@@ -6,9 +6,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -19,17 +18,17 @@ public class MatchController {
     private final MatchService service;
 
     @PostMapping(value = "/invite", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Mono<InviteResponse> invite(@Valid @RequestBody InviteRequest request) {
+    public InviteResponse invite(@Valid @RequestBody InviteRequest request) {
         return service.invite(request);
     }
 
     @PostMapping(value = "/accept", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Mono<AcceptDTO> accept(@RequestBody AcceptRequest request) {
+    public AcceptDTO accept(@RequestBody AcceptRequest request) {
         return service.accept(request);
     }
 
     @GetMapping("/user/{userId}")
-    public Flux<MatchDTO> myMatches(@PathVariable UUID userId) {
+    public List<MatchDTO> myMatches(@PathVariable UUID userId) {
         return service.listForUser(userId);
     }
 }
