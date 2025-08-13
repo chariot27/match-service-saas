@@ -1,12 +1,11 @@
+// br/ars/match_service/mapper/MapStructConfig.java
 package br.ars.match_service.mapper;
 
-import org.mapstruct.Builder;
-import org.mapstruct.MapperConfig;
-import org.mapstruct.ReportingPolicy;
+import org.mapstruct.*;
 
 @MapperConfig(
-    componentModel = "spring",
-    unmappedTargetPolicy = ReportingPolicy.IGNORE,
-    builder = @Builder(disableBuilder = true)
+    componentModel = MappingConstants.ComponentModel.SPRING,
+    injectionStrategy = InjectionStrategy.CONSTRUCTOR,
+    unmappedTargetPolicy = ReportingPolicy.IGNORE
 )
-public interface MapStructConfig { }
+public interface MapStructConfig {}
