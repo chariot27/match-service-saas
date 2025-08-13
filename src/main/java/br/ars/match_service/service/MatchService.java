@@ -7,14 +7,14 @@ import br.ars.match_service.repo.*;
 import br.ars.match_service.util.PairKeyUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -38,12 +38,12 @@ public class MatchService {
                 safe(request.getInviterId()), safe(request.getTargetId()),
                 request.getInviterName(), request.getInviterPhone(), request.getInviterAvatar());
 
-        if (request.getInviterId().equals(request.getTargetId())) {
+        if (Objects.equals(request.getInviterId(), request.getTargetId())) {
             log.warn("[MATCH][INVITE] inviterId == targetId ({}). Abortando.", request.getInviterId());
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "inviterId == targetId");
         }
 
-        UUID low = PairKeyUtil.low(request.getInviterId(), request.getTargetId());
+        UUID low  = PairKeyUtil.low(request.getInviterId(), request.getTargetId());
         UUID high = PairKeyUtil.high(request.getInviterId(), request.getTargetId());
         log.debug("[MATCH][INVITE] pair computed -> low={}, high={}", low, high);
 
@@ -61,17 +61,15 @@ public class MatchService {
             return InviteResponse.builder().matched(false).invite(inviteMapper.toDTO(existing.get())).build();
         }
 
-        // Cria novo convite
+        // Cria novo convite (JPA gera id/timestamps; status default = PENDING na entidade)
         MatchInvite entity = inviteMapper.toEntity(request);
-        entity.setId(UUID.randomUUID());
-        entity.setStatus(InviteStatus.PENDING);
-        entity.setCreatedAt(OffsetDateTime.now());
 
         try {
-            inviteRepo.save(entity);
+            entity = inviteRepo.save(entity);
             log.info("[MATCH][INVITE] convite criado com sucesso. inviteId={}", entity.getId());
-        } catch (DuplicateKeyException e) {
-            log.warn("[MATCH][INVITE] DuplicateKey ao salvar convite (race). Tentando recarregar. cause={}", e.getMessage());
+        } catch (DataIntegrityViolationException e) {
+            // corrida contra unique (inviter_id, target_id)
+            log.warn("[MATCH][INVITE] Unique violation ao salvar convite (race). Tentando recarregar. cause={}", e.getMessage());
             entity = inviteRepo.findByInviterIdAndTargetId(request.getInviterId(), request.getTargetId())
                     .orElseThrow(() -> {
                         log.error("[MATCH][INVITE] duplicate detectado e não consegui recarregar o convite.");
@@ -114,7 +112,7 @@ public class MatchService {
         log.debug("[MATCH][ACCEPT] convite localizado inviteId={}, status={}", invite.getId(), invite.getStatus());
 
         if (invite.getStatus() == InviteStatus.PENDING) {
-            invite.setStatus(InviteStatus.ACCEPTED);
+            invite.setStatus(InviteStatus.ACCEPTED); // dirty checking
             inviteRepo.save(invite);
             log.info("[MATCH][ACCEPT] convite marcado como ACCEPTED. inviteId={}", invite.getId());
         }
@@ -122,13 +120,12 @@ public class MatchService {
         Match m = createMatchIfAbsent(invite);
         log.info("[MATCH][ACCEPT] match garantido matchId={}", m.getId());
 
+        // cria accept ligado ao invite (JPA gera id/timestamps)
         MatchAccept acc = MatchAccept.builder()
-                .id(UUID.randomUUID())
-                .inviteId(invite.getId())
+                .invite(invite)
                 .inviterName(invite.getInviterName())
                 .inviterPhone(invite.getInviterPhone())
                 .inviterAvatar(invite.getInviterAvatar())
-                .createdAt(OffsetDateTime.now())
                 .build();
         acceptRepo.save(acc);
 
@@ -141,7 +138,7 @@ public class MatchService {
 
     // ---------- CORE (cria match se não existir) ----------
     private Match createMatchIfAbsent(MatchInvite invite) {
-        UUID low = PairKeyUtil.low(invite.getInviterId(), invite.getTargetId());
+        UUID low  = PairKeyUtil.low(invite.getInviterId(), invite.getTargetId());
         UUID high = PairKeyUtil.high(invite.getInviterId(), invite.getTargetId());
         log.debug("[MATCH][CREATE] pair low={}, high={}, fromInviteId={}", low, high, invite.getId());
 
@@ -152,22 +149,21 @@ public class MatchService {
         }
 
         Match m = Match.builder()
-                .id(UUID.randomUUID())
                 .userA(invite.getInviterId())
                 .userB(invite.getTargetId())
                 .pairLow(low)
                 .pairHigh(high)
-                .fromInviteId(invite.getId())
+                .fromInvite(invite)      // <<< relação JPA
                 .conviteMutuo(true)
-                .createdAt(OffsetDateTime.now())
                 .build();
 
         try {
             Match saved = matchRepo.save(m);
             log.info("[MATCH][CREATE] match criado com sucesso. matchId={}", saved.getId());
             return saved;
-        } catch (DuplicateKeyException e) {
-            log.warn("[MATCH][CREATE] DuplicateKey (race). Recarregando… cause={}", e.getMessage());
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            // corrida contra unique (pair_low, pair_high)
+            log.warn("[MATCH][CREATE] Unique violation (race). Recarregando… cause={}", e.getMessage());
             return matchRepo.findByPairLowAndPairHigh(low, high)
                     .orElseThrow(() -> {
                         log.error("[MATCH][CREATE] match inserido concorrente mas não encontrado (inconsistência).");
@@ -177,6 +173,7 @@ public class MatchService {
     }
 
     // ---------- LIST ----------
+    @Transactional(readOnly = true)
     public List<MatchDTO> listForUser(UUID userId) {
         log.info("[MATCH][LIST] listForUser userId={}", userId);
         List<MatchDTO> out = matchRepo.findAllByUserAOrUserB(userId, userId)

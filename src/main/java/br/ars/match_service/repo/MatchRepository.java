@@ -1,14 +1,21 @@
 package br.ars.match_service.repo;
 
 import br.ars.match_service.domain.Match;
-import org.springframework.data.repository.CrudRepository;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
 
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
-public interface MatchRepository extends CrudRepository<Match, UUID> {
+@Repository
+public interface MatchRepository extends JpaRepository<Match, UUID> {
+
     boolean existsByPairLowAndPairHigh(UUID pairLow, UUID pairHigh);
+
     Optional<Match> findByPairLowAndPairHigh(UUID pairLow, UUID pairHigh);
+
+    // usada no listForUser(userId)
     List<Match> findAllByUserAOrUserB(UUID userA, UUID userB);
+
+    // variação se quiser ordenado (não quebra o que já existe)
+    List<Match> findAllByUserAOrUserBOrderByCreatedAtDesc(UUID userA, UUID userB);
 }

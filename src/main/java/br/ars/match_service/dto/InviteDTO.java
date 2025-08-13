@@ -1,14 +1,11 @@
 package br.ars.match_service.dto;
 
 import br.ars.match_service.domain.InviteStatus;
-import lombok.Builder;
-import lombok.Data;
-
+import lombok.*;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
-@Data
-@Builder
+@Data @NoArgsConstructor @AllArgsConstructor @Builder
 public class InviteDTO {
     private UUID id;
     private UUID inviterId;
@@ -18,4 +15,6 @@ public class InviteDTO {
     private String inviterAvatar;
     private InviteStatus status;
     private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
+    private Long version;
 }

@@ -1,34 +1,49 @@
 package br.ars.match_service.domain;
 
+import jakarta.persistence.*;
 import lombok.*;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.relational.core.mapping.Column;
-import org.springframework.data.relational.core.mapping.Table;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.annotations.UuidGenerator;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-@Table("match_accepts")
+@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Entity
+@Table(name = "match_accepts",
+       indexes = @Index(name="idx_match_accepts_invite", columnList = "invite_id"))
 public class MatchAccept {
+
     @Id
+    @GeneratedValue @UuidGenerator
+    @Column(name = "id", columnDefinition="uuid", nullable=false, updatable=false)
     private UUID id;
 
-    @Column("invite_id")
-    private UUID inviteId;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name="invite_id",
+        nullable=false,
+        foreignKey=@ForeignKey(name="fk_accept_invite"))
+    private MatchInvite invite;
 
-    @Column("inviter_name")
+    @Column(name = "inviter_name")
     private String inviterName;
 
-    @Column("inviter_phone")
+    @Column(name = "inviter_phone")
     private String inviterPhone;
 
-    @Column("inviter_avatar")
+    @Column(name = "inviter_avatar")
     private String inviterAvatar;
 
-    @Column("created_at")
+    @CreationTimestamp
+    @Column(name = "created_at", nullable=false, updatable=false)
     private OffsetDateTime createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at", nullable=false)
+    private OffsetDateTime updatedAt;
+
+    @Version
+    @Column(name = "version", nullable=false)
+    private Long version;
 }
