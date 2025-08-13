@@ -1,19 +1,21 @@
 package br.ars.match_service.repo;
 
+import br.ars.match_service.domain.InviteStatus;
 import br.ars.match_service.domain.MatchInvite;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-@Repository
 public interface MatchInviteRepository extends JpaRepository<MatchInvite, UUID> {
 
     Optional<MatchInvite> findByInviterIdAndTargetId(UUID inviterId, UUID targetId);
 
-    boolean existsByInviterIdAndTargetId(UUID inviterId, UUID targetId);
+    // Listagens para tela (ordenado pelo campo de entidade "createdAt")
+    List<MatchInvite> findAllByInviterIdOrderByCreatedAtDesc(UUID inviterId);
+    List<MatchInvite> findAllByInviterIdAndStatusOrderByCreatedAtDesc(UUID inviterId, InviteStatus status);
 
-    // se precisar limpar duplicados antigos, útil em migrações
-    long deleteByInviterIdAndTargetId(UUID inviterId, UUID targetId);
+    List<MatchInvite> findAllByTargetIdOrderByCreatedAtDesc(UUID targetId);
+    List<MatchInvite> findAllByTargetIdAndStatusOrderByCreatedAtDesc(UUID targetId, InviteStatus status);
 }

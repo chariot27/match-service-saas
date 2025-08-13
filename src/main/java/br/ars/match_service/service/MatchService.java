@@ -61,7 +61,7 @@ public class MatchService {
             return InviteResponse.builder().matched(false).invite(inviteMapper.toDTO(existing.get())).build();
         }
 
-        // Cria novo convite (JPA gera id/timestamps; status default = PENDING na entidade)
+        // Cria novo convite (status default = PENDING na entidade)
         MatchInvite entity = inviteMapper.toEntity(request);
 
         try {
@@ -120,7 +120,7 @@ public class MatchService {
         Match m = createMatchIfAbsent(invite);
         log.info("[MATCH][ACCEPT] match garantido matchId={}", m.getId());
 
-        // cria accept ligado ao invite (JPA gera id/timestamps)
+        // cria accept ligado ao invite
         MatchAccept acc = MatchAccept.builder()
                 .invite(invite)
                 .inviterName(invite.getInviterName())
@@ -153,7 +153,7 @@ public class MatchService {
                 .userB(invite.getTargetId())
                 .pairLow(low)
                 .pairHigh(high)
-                .fromInvite(invite)      // <<< relação JPA
+                .fromInvite(invite)      // relação JPA
                 .conviteMutuo(true)
                 .build();
 
@@ -161,7 +161,7 @@ public class MatchService {
             Match saved = matchRepo.save(m);
             log.info("[MATCH][CREATE] match criado com sucesso. matchId={}", saved.getId());
             return saved;
-        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+        } catch (DataIntegrityViolationException e) {
             // corrida contra unique (pair_low, pair_high)
             log.warn("[MATCH][CREATE] Unique violation (race). Recarregando… cause={}", e.getMessage());
             return matchRepo.findByPairLowAndPairHigh(low, high)
@@ -172,7 +172,7 @@ public class MatchService {
         }
     }
 
-    // ---------- LIST ----------
+    // ---------- LIST MATCHES ----------
     @Transactional(readOnly = true)
     public List<MatchDTO> listForUser(UUID userId) {
         log.info("[MATCH][LIST] listForUser userId={}", userId);
@@ -182,7 +182,36 @@ public class MatchService {
         return out;
     }
 
-    // ---------- helpers de log ----------
+    // ---------- LIST INVITES (NOVO) ----------
+    // ---------- LIST INVITES (NOVO) ----------
+    @Transactional(readOnly = true)
+    public List<InviteDTO> listSentInvites(UUID inviterId, InviteStatus status) {
+        log.info("[INVITE][SENT] userId={} status={}", inviterId, status);
+
+        List<MatchInvite> rows;
+        if (status == null) {
+            rows = inviteRepo.findAllByInviterIdOrderByCreatedAtDesc(inviterId);
+        } else {
+            rows = inviteRepo.findAllByInviterIdAndStatusOrderByCreatedAtDesc(inviterId, status);
+        }
+        return rows.stream().map(inviteMapper::toDTO).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<InviteDTO> listReceivedInvites(UUID targetId, InviteStatus status) {
+        log.info("[INVITE][RECEIVED] userId={} status={}", targetId, status);
+
+        List<MatchInvite> rows;
+        if (status == null) {
+            rows = inviteRepo.findAllByTargetIdOrderByCreatedAtDesc(targetId);
+        } else {
+            rows = inviteRepo.findAllByTargetIdAndStatusOrderByCreatedAtDesc(targetId, status);
+        }
+        return rows.stream().map(inviteMapper::toDTO).toList();
+}
+
+
+    // ---------- helpers ----------
     private static Object safe(Object o) {
         return o == null ? "null" : o;
     }
