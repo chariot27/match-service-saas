@@ -4,25 +4,26 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
-import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.annotations.DynamicInsert;
 
-import java.time.OffsetDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Getter @Setter
+@NoArgsConstructor @AllArgsConstructor
+@Builder
+@DynamicInsert // se algum campo vier null, o Hibernate omite a coluna e deixa o default do DB agir
 @Entity
 @Table(name = "match_invites",
-       uniqueConstraints = @UniqueConstraint(name = "uq_inviter_target",
-                       columnNames = {"inviter_id","target_id"}),
        indexes = {
-           @Index(name="idx_match_invites_inviter", columnList = "inviter_id"),
-           @Index(name="idx_match_invites_target",  columnList = "target_id")
+         @Index(name="idx_match_invites_inviter_target", columnList = "inviter_id,target_id", unique = true),
+         @Index(name="idx_match_invites_target_status_created", columnList = "target_id,status,created_at"),
+         @Index(name="idx_match_invites_inviter_status_created", columnList = "inviter_id,status,created_at")
        })
 public class MatchInvite {
 
     @Id
-    @GeneratedValue @UuidGenerator
-    @Column(name = "id", columnDefinition = "uuid", nullable = false, updatable = false)
+    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(name = "inviter_id", nullable = false, columnDefinition = "uuid")
@@ -41,18 +42,19 @@ public class MatchInvite {
     private String inviterAvatar;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false)
-    private InviteStatus status = InviteStatus.PENDING;
+    @Column(name = "status", nullable = false, length = 16)
+    @Builder.Default
+    private InviteStatus status = InviteStatus.PENDING; // ✅ default no Java
 
     @CreationTimestamp
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private OffsetDateTime createdAt;
+    @Column(name = "created_at", updatable = false)
+    private Instant createdAt;
 
     @UpdateTimestamp
-    @Column(name = "updated_at", nullable = false)
-    private OffsetDateTime updatedAt;
+    @Column(name = "updated_at")
+    private Instant updatedAt;
 
     @Version
-    @Column(name = "version", nullable = false)
-    private Long version;
+    @Column(name = "version")
+    private long version;
 }
