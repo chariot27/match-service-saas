@@ -120,7 +120,7 @@ public class MatchService {
         Match m = createMatchIfAbsent(invite);
         log.info("[MATCH][ACCEPT] match garantido matchId={}", m.getId());
 
-        // cria accept ligado ao invite
+        // cria accept ligado ao invite (auditoria)
         MatchAccept acc = MatchAccept.builder()
                 .invite(invite)
                 .inviterName(invite.getInviterName())
@@ -148,12 +148,13 @@ public class MatchService {
             return existing.get();
         }
 
+        // IMPORTANTE: alinhar users com o par canônico
         Match m = Match.builder()
-                .userA(invite.getInviterId())
-                .userB(invite.getTargetId())
+                .userA(low)               // menor
+                .userB(high)              // maior
                 .pairLow(low)
                 .pairHigh(high)
-                .fromInvite(invite)      // relação JPA
+                .fromInvite(invite)       // relação JPA
                 .conviteMutuo(true)
                 .build();
 
@@ -182,8 +183,7 @@ public class MatchService {
         return out;
     }
 
-    // ---------- LIST INVITES (NOVO) ----------
-    // ---------- LIST INVITES (NOVO) ----------
+    // ---------- LIST INVITES ----------
     @Transactional(readOnly = true)
     public List<InviteDTO> listSentInvites(UUID inviterId, InviteStatus status) {
         log.info("[INVITE][SENT] userId={} status={}", inviterId, status);
@@ -208,8 +208,7 @@ public class MatchService {
             rows = inviteRepo.findAllByTargetIdAndStatusOrderByCreatedAtDesc(targetId, status);
         }
         return rows.stream().map(inviteMapper::toDTO).toList();
-}
-
+    }
 
     // ---------- helpers ----------
     private static Object safe(Object o) {
