@@ -55,7 +55,8 @@ public class MatchService {
         }
 
         // Já existe convite idêntico?
-        Optional<MatchInvite> existing = inviteRepo.findByInviterIdAndTargetId(request.getInviterId(), request.getTargetId());
+        Optional<MatchInvite> existing = inviteRepo
+                .findByInviterIdAndTargetId(request.getInviterId(), request.getTargetId());
         if (existing.isPresent()) {
             log.info("[MATCH][INVITE] convite já existente (mesmo inviter->target). inviteId={}", existing.get().getId());
             return InviteResponse.builder().matched(false).invite(inviteMapper.toDTO(existing.get())).build();
@@ -78,7 +79,8 @@ public class MatchService {
         }
 
         // Existe convite oposto? (target -> inviter) -> vira match
-        Optional<MatchInvite> opposite = inviteRepo.findByInviterIdAndTargetId(entity.getTargetId(), entity.getInviterId());
+        Optional<MatchInvite> opposite = inviteRepo
+                .findByInviterIdAndTargetId(entity.getTargetId(), entity.getInviterId());
         if (opposite.isPresent()) {
             log.info("[MATCH][INVITE] convite oposto encontrado (target->inviter). Criando match… opInviteId={}", opposite.get().getId());
             Match m = createMatchIfAbsent(entity);
@@ -112,7 +114,7 @@ public class MatchService {
         log.debug("[MATCH][ACCEPT] convite localizado inviteId={}, status={}", invite.getId(), invite.getStatus());
 
         if (invite.getStatus() == InviteStatus.PENDING) {
-            invite.setStatus(InviteStatus.ACCEPTED); // dirty checking
+            invite.setStatus(InviteStatus.ACCEPTED);
             inviteRepo.save(invite);
             log.info("[MATCH][ACCEPT] convite marcado como ACCEPTED. inviteId={}", invite.getId());
         }
@@ -120,7 +122,7 @@ public class MatchService {
         Match m = createMatchIfAbsent(invite);
         log.info("[MATCH][ACCEPT] match garantido matchId={}", m.getId());
 
-        // cria accept ligado ao invite (auditoria)
+        // cria accept ligado ao invite
         MatchAccept acc = MatchAccept.builder()
                 .invite(invite)
                 .inviterName(invite.getInviterName())
@@ -148,19 +150,20 @@ public class MatchService {
             return existing.get();
         }
 
-        // IMPORTANTE: alinhar users com o par canônico
         Match m = Match.builder()
-                .userA(low)               // menor
-                .userB(high)              // maior
+                // setamos userA/B já no formato ordenado
+                .userA(low)
+                .userB(high)
                 .pairLow(low)
                 .pairHigh(high)
-                .fromInvite(invite)       // relação JPA
+                .fromInvite(invite)
                 .conviteMutuo(true)
                 .build();
 
         try {
             Match saved = matchRepo.save(m);
-            log.info("[MATCH][CREATE] match criado com sucesso. matchId={}", saved.getId());
+            log.info("[MATCH][CREATE] match criado (pendente flush). userA={}, userB={}, pairLow={}, pairHigh={}",
+                    saved.getUserA(), saved.getUserB(), saved.getPairLow(), saved.getPairHigh());
             return saved;
         } catch (DataIntegrityViolationException e) {
             // corrida contra unique (pair_low, pair_high)
@@ -188,12 +191,10 @@ public class MatchService {
     public List<InviteDTO> listSentInvites(UUID inviterId, InviteStatus status) {
         log.info("[INVITE][SENT] userId={} status={}", inviterId, status);
 
-        List<MatchInvite> rows;
-        if (status == null) {
-            rows = inviteRepo.findAllByInviterIdOrderByCreatedAtDesc(inviterId);
-        } else {
-            rows = inviteRepo.findAllByInviterIdAndStatusOrderByCreatedAtDesc(inviterId, status);
-        }
+        List<MatchInvite> rows = (status == null)
+                ? inviteRepo.findAllByInviterIdOrderByCreatedAtDesc(inviterId)
+                : inviteRepo.findAllByInviterIdAndStatusOrderByCreatedAtDesc(inviterId, status);
+
         return rows.stream().map(inviteMapper::toDTO).toList();
     }
 
@@ -201,12 +202,10 @@ public class MatchService {
     public List<InviteDTO> listReceivedInvites(UUID targetId, InviteStatus status) {
         log.info("[INVITE][RECEIVED] userId={} status={}", targetId, status);
 
-        List<MatchInvite> rows;
-        if (status == null) {
-            rows = inviteRepo.findAllByTargetIdOrderByCreatedAtDesc(targetId);
-        } else {
-            rows = inviteRepo.findAllByTargetIdAndStatusOrderByCreatedAtDesc(targetId, status);
-        }
+        List<MatchInvite> rows = (status == null)
+                ? inviteRepo.findAllByTargetIdOrderByCreatedAtDesc(targetId)
+                : inviteRepo.findAllByTargetIdAndStatusOrderByCreatedAtDesc(targetId, status);
+
         return rows.stream().map(inviteMapper::toDTO).toList();
     }
 
